@@ -649,11 +649,11 @@ if __name__ == "__main__":
             print(f"  传递给 launch_server 的参数: {launch_args_for_internal_camoufox}", flush=True)
 
             if internal_mode_arg == 'headless':
-                launch_server(headless=True, **launch_args_for_internal_camoufox)
+                launch_server(headless=True, geoip=True, **launch_args_for_internal_camoufox)
             elif internal_mode_arg == 'virtual_headless':
-                launch_server(headless="virtual", **launch_args_for_internal_camoufox)
+                launch_server(headless="virtual", geoip=True, **launch_args_for_internal_camoufox)
             elif internal_mode_arg == 'debug':
-                launch_server(headless=False, **launch_args_for_internal_camoufox)
+                launch_server(headless=False, geoip=True, **launch_args_for_internal_camoufox)
 
             print(f"--- [内部Camoufox启动] camoufox.server.launch_server ({internal_mode_arg}模式) 调用已完成/阻塞。脚本将等待其结束。 ---", flush=True)
         except Exception as e_internal_launch_final:
