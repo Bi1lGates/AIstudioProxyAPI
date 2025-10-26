@@ -4,30 +4,37 @@ services:
       context: ..
       dockerfile: docker/Dockerfile
     container_name: ai-studio-proxy-container
+    network_mode: host  # 添加这一行，使用 host 网络
     mem_limit: ${DOCKER_MEMORY_LIMIT:-0}
     memswap_limit: ${DOCKER_MEMSWAP_LIMIT:-0}
-    ports:
-      - "${HOST_FASTAPI_PORT:-2048}:${DEFAULT_FASTAPI_PORT:-2048}"
-      - "${HOST_STREAM_PORT:-3120}:${STREAM_PORT:-3120}"
+    # ports:
+    #   - "${HOST_FASTAPI_PORT:-2048}:${DEFAULT_FASTAPI_PORT:-2048}"
+    #   - "${HOST_STREAM_PORT:-3120}:${STREAM_PORT:-3120}"
     volumes:
       # 挂载认证文件目录 (必需)
       - ../auth_profiles:/app/auth_profiles
       # 挂载 .env 配置文件 (推荐)
       # 请将 docker/.env.docker 复制为 docker/.env 并根据需要修改
       - ../docker/.env:/app/.env:ro
+      # 挂载错误截图目录 (用于调试，可以查看错误时的页面截图)
+      - ../errors_py:/app/errors_py
       # 挂载日志目录 (可选，用于持久化日志)
       # 如果出现权限报错，需要修改日志目录权限 sudo chmod -R 777 ../logs
-      # - ../logs:/app/logs
+      - ../logs:/app/logs
       # 挂载自定义证书 (可选)
       # - ../certs:/app/certs:ro
       # 挂载脚本注入相关文件 (可选，用于自定义脚本和模型配置)
       # 如果您有自定义的油猴脚本或模型配置，可以取消注释以下行
       # - ../browser_utils/custom_scripts:/app/browser_utils/custom_scripts:ro
       # - ../browser_utils/model_configs.json:/app/browser_utils/model_configs.json:ro
+      # 挂载 config 目录，使 selectors.py 等配置文件修改立即生效
+      - ../config:/app/config
+      - ../browser_utils:/app/browser_utils
     environment:
       # 这些环境变量会覆盖 .env 文件中的设置
       # 如果您想使用 .env 文件，可以注释掉这些行
       - PYTHONUNBUFFERED=1
+      - UNIFIED_PROXY_CONFIG=http://127.0.0.1:20171  # 添加这一行
       # - PORT=${PORT:-8000}
       # - DEFAULT_FASTAPI_PORT=${DEFAULT_FASTAPI_PORT:-2048}
       # - DEFAULT_CAMOUFOX_PORT=${DEFAULT_CAMOUFOX_PORT:-9222}

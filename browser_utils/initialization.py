@@ -366,6 +366,9 @@ async def _initialize_page_logic(browser: AsyncBrowser):
                 await found_page.goto(target_full_url, wait_until="domcontentloaded", timeout=90000)
                 current_url = found_page.url
                 logger.info(f"-> 新页面导航尝试完成。当前 URL: {current_url}")
+                # 调试截图：导航完成后
+                from .operations import save_error_snapshot
+                await save_error_snapshot("debug_after_navigation")
             except Exception as new_page_nav_err:
                 # 导入save_error_snapshot函数
                 from .operations import save_error_snapshot
@@ -426,7 +429,16 @@ async def _initialize_page_logic(browser: AsyncBrowser):
         logger.info(f"-> 确认当前位于 AI Studio 对话页面: {current_url}")
         await found_page.bring_to_front()
 
+        # 调试截图：确认在 AI Studio 页面后
+        from .operations import save_error_snapshot
+        await save_error_snapshot("debug_before_wait_input")
+
         try:
+            # 调试截图：即将等待输入框
+            await save_error_snapshot("debug_about_to_wait_input")
+            logger.info("-> 即将等待输入框元素...")
+            await asyncio.sleep(3)  # 给页面更多时间加载
+
             input_wrapper_locator = found_page.locator('ms-prompt-input-wrapper')
             await expect_async(input_wrapper_locator).to_be_visible(timeout=35000)
             await expect_async(found_page.locator(INPUT_SELECTOR)).to_be_visible(timeout=10000)

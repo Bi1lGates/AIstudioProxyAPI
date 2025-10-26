@@ -4,7 +4,7 @@ version = "0.1.0"
 description = ""
 authors = ["Your Name <you@example.com>"]
 readme = "README.md"
-package-mode = false
+# package-mode = false  # 临时注释以兼容 Poetry 1.5
 
 [tool.poetry.dependencies]
 python = ">=3.9,<4.0"
@@ -16,7 +16,7 @@ websockets = "==12.0"
 httptools = "==0.6.1"
 uvloop = {version = "*", markers = "sys_platform != 'win32'"}
 playwright = "*"
-camoufox = {version = "0.4.11", extras = ["geoip"]}
+camoufox = {git = "https://github.com/daijro/camoufox.git", rev = "main", subdirectory = "pythonlib", extras = ["geoip"]}
 cryptography = "==42.0.5"
 aiohttp = "~=3.9.5"
 requests = "==2.31.0"

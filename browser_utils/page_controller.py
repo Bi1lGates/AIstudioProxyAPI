@@ -162,6 +162,7 @@ class PageController:
 
         except Exception as e:
             self.logger.error(f"[{self.req_id}] ❌ 调整思考预算时出错: {e}")
+            await save_error_snapshot(f"thinking_budget_error_{self.req_id}")
             if isinstance(e, ClientDisconnectedError):
                 raise
 
@@ -218,6 +219,7 @@ class PageController:
 
         except Exception as e:
             self.logger.error(f"[{self.req_id}] ❌ 操作 'Google Search toggle' 开关时发生错误: {e}")
+            await save_error_snapshot(f"google_search_toggle_error_{self.req_id}")
             if isinstance(e, ClientDisconnectedError):
                  raise
 
@@ -301,6 +303,8 @@ class PageController:
 
         except Exception as e:
             self.logger.error(f"[{self.req_id}] ❌ 操作 'Thinking Budget toggle' 开关时发生错误: {e}")
+            # 添加错误截图
+            await save_error_snapshot(f"thinking_budget_toggle_error_{self.req_id}")
             if isinstance(e, ClientDisconnectedError):
                 raise
     async def _adjust_temperature(self, temperature: float, page_params_cache: dict, params_cache_lock: asyncio.Lock, check_client_disconnected: Callable):
@@ -850,6 +854,8 @@ class PageController:
             return True
         except Exception as e:
             self.logger.error(f"[{self.req_id}] 通过上传菜单设置文件失败: {e}")
+            # 添加错误截图
+            await save_error_snapshot(f"upload_menu_error_{self.req_id}")
             return False
 
     async def submit_prompt(self, prompt: str,image_list: List, check_client_disconnected: Callable):
@@ -1129,6 +1135,8 @@ class PageController:
                 return False
         except Exception as shortcut_err:
             self.logger.warning(f"[{self.req_id}] 回车键提交失败: {shortcut_err}")
+            # 添加错误截图
+            await save_error_snapshot(f"enter_submit_fail_{self.req_id}")
             return False
 
     async def _try_combo_submit(self, prompt_textarea_locator, check_client_disconnected: Callable) -> bool:
@@ -1221,6 +1229,8 @@ class PageController:
                 return False
         except Exception as combo_err:
             self.logger.warning(f"[{self.req_id}] 组合键提交失败: {combo_err}")
+            # 添加错误截图
+            await save_error_snapshot(f"combo_submit_fail_{self.req_id}")
             return False
 
     async def get_response(self, check_client_disconnected: Callable) -> str:

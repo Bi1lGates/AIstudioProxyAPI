@@ -12,6 +12,7 @@ from typing import Optional
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
 from typing import Callable, Awaitable
@@ -299,8 +300,17 @@ def create_app() -> FastAPI:
         version="0.6.0-integrated",
         lifespan=lifespan
     )
-    
-    # 添加中间件
+
+    # 添加 CORS 中间件（必须在其他中间件之前）
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],  # 允许所有来源（由 API key 认证保护安全性）
+        allow_credentials=True,
+        allow_methods=["*"],  # 允许所有 HTTP 方法
+        allow_headers=["*"],  # 允许所有请求头
+    )
+
+    # 添加认证中间件
     app.add_middleware(APIKeyAuthMiddleware)
 
     # 注册路由
