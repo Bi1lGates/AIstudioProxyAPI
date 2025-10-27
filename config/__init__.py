@@ -79,9 +79,11 @@ __all__ = [
     'SAVED_AUTH_DIR',
     'LOG_DIR',
     'APP_LOG_FILE_PATH',
+    'SCREENSHOT_DIR',
     'NO_PROXY_ENV',
     'ENABLE_SCRIPT_INJECTION',
     'USERSCRIPT_PATH',
+    'ENABLE_OPERATION_SCREENSHOTS',
 
     # 工具函数
     'get_environment_variable',

@@ -19,8 +19,11 @@ from config import (
     CLICK_TIMEOUT_MS,
     RESPONSE_COMPLETION_TIMEOUT,
     INITIAL_WAIT_MS_BEFORE_POLLING,
+    ENABLE_OPERATION_SCREENSHOTS,
+    SCREENSHOT_DIR,
 )
 from models import ClientDisconnectedError
+from datetime import datetime
 
 logger = logging.getLogger("AIStudioProxyServer")
 
@@ -438,28 +441,28 @@ async def save_error_snapshot(error_name: str = 'error'):
     base_error_name = error_name if not req_id else '_'.join(name_parts[:-1])
     log_prefix = f"[{req_id}]" if req_id else "[无请求ID]"
     page_to_snapshot = server.page_instance
-    
+
     if not server.browser_instance or not server.browser_instance.is_connected() or not page_to_snapshot or page_to_snapshot.is_closed():
         logger.warning(f"{log_prefix} 无法保存快照 ({base_error_name})，浏览器/页面不可用。")
         return
-    
+
     logger.info(f"{log_prefix} 尝试保存错误快照 ({base_error_name})...")
     timestamp = int(time.time() * 1000)
     error_dir = os.path.join(os.path.dirname(__file__), '..', 'errors_py')
-    
+
     try:
         os.makedirs(error_dir, exist_ok=True)
         filename_suffix = f"{req_id}_{timestamp}" if req_id else f"{timestamp}"
         filename_base = f"{base_error_name}_{filename_suffix}"
         screenshot_path = os.path.join(error_dir, f"{filename_base}.png")
         html_path = os.path.join(error_dir, f"{filename_base}.html")
-        
+
         try:
             await page_to_snapshot.screenshot(path=screenshot_path, full_page=True, timeout=15000)
             logger.info(f"{log_prefix}   快照已保存到: {screenshot_path}")
         except Exception as ss_err:
             logger.error(f"{log_prefix}   保存屏幕截图失败 ({base_error_name}): {ss_err}")
-        
+
         try:
             content = await page_to_snapshot.content()
             f = None
@@ -480,6 +483,58 @@ async def save_error_snapshot(error_name: str = 'error'):
             logger.error(f"{log_prefix}   获取页面内容失败 ({base_error_name}): {html_err}")
     except Exception as dir_err:
         logger.error(f"{log_prefix}   创建错误目录或保存快照时发生其他错误 ({base_error_name}): {dir_err}")
+
+async def save_operation_screenshot(page: AsyncPage, operation_name: str, req_id: str = 'default', request_timestamp: str = None):
+    """保存操作截图（用于调试和追踪操作流程）
+
+    同一个会话的所有截图会保存到同一个文件夹中，文件夹名为"时间戳_请求ID"。
+
+    参数：
+        page: Playwright页面对象
+        operation_name: 操作名称（函数名）
+        req_id: 请求ID
+        request_timestamp: 请求时间戳（格式：YYYYMMDD_HHMMSS），同一请求的所有截图使用相同的时间戳
+    """
+    if not ENABLE_OPERATION_SCREENSHOTS:
+        return
+
+    if not page or page.is_closed():
+        if DEBUG_LOGS_ENABLED:
+            logger.debug(f"[{req_id}] 无法保存操作截图 ({operation_name})，页面不可用。")
+        return
+
+    try:
+        # 如果没有提供时间戳，则使用当前时间
+        if request_timestamp is None:
+            request_timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+
+        # 为每个请求创建独立的文件夹
+        # 目录结构: screenshots/时间戳_请求ID/操作名.png
+        folder_name = f"{request_timestamp}_{req_id}"
+        request_dir = os.path.join(SCREENSHOT_DIR, folder_name)
+        os.makedirs(request_dir, exist_ok=True)
+
+        # 生成文件名：操作名.png
+        # 如果同一操作可能执行多次，添加毫秒时间戳避免覆盖
+        base_filename = f"{operation_name}.png"
+        screenshot_path = os.path.join(request_dir, base_filename)
+
+        # 如果文件已存在，添加毫秒时间戳
+        if os.path.exists(screenshot_path):
+            timestamp = datetime.now().strftime('%H%M%S_%f')[:-3]  # 精确到毫秒
+            filename = f"{operation_name}_{timestamp}.png"
+            screenshot_path = os.path.join(request_dir, filename)
+
+        # 截图
+        await page.screenshot(path=screenshot_path, full_page=True, timeout=10000)
+
+        if DEBUG_LOGS_ENABLED:
+            logger.debug(f"[{req_id}] 操作截图已保存: {operation_name} -> {screenshot_path}")
+
+    except Exception as e:
+        # 截图失败不影响主流程，只记录日志
+        if DEBUG_LOGS_ENABLED:
+            logger.debug(f"[{req_id}] 保存操作截图失败 ({operation_name}): {e}")
 
 async def get_response_via_edit_button(
     page: AsyncPage,

@@ -4,12 +4,12 @@ services:
       context: ..
       dockerfile: docker/Dockerfile
     container_name: ai-studio-proxy-container
-    network_mode: host  # 添加这一行，使用 host 网络
+    # network_mode: host  # macOS Docker Desktop 不支持 host 网络模式，已注释
     mem_limit: ${DOCKER_MEMORY_LIMIT:-0}
     memswap_limit: ${DOCKER_MEMSWAP_LIMIT:-0}
-    # ports:
-    #   - "${HOST_FASTAPI_PORT:-2048}:${DEFAULT_FASTAPI_PORT:-2048}"
-    #   - "${HOST_STREAM_PORT:-3120}:${STREAM_PORT:-3120}"
+    ports:
+      - "${HOST_FASTAPI_PORT:-2048}:${DEFAULT_FASTAPI_PORT:-2048}"
+      - "${HOST_STREAM_PORT:-3120}:${STREAM_PORT:-3120}"
     volumes:
       # 挂载认证文件目录 (必需)
       - ../auth_profiles:/app/auth_profiles
@@ -18,6 +18,8 @@ services:
       - ../docker/.env:/app/.env:ro
       # 挂载错误截图目录 (用于调试，可以查看错误时的页面截图)
       - ../errors_py:/app/errors_py
+      # 挂载操作截图目录 (用于追踪操作流程)
+      - ../screenshots:/app/screenshots
       # 挂载日志目录 (可选，用于持久化日志)
       # 如果出现权限报错，需要修改日志目录权限 sudo chmod -R 777 ../logs
       - ../logs:/app/logs
@@ -30,25 +32,33 @@ services:
       # 挂载 config 目录，使 selectors.py 等配置文件修改立即生效
       - ../config:/app/config
       - ../browser_utils:/app/browser_utils
+      # 挂载 logging_utils 目录，使日志配置修改立即生效
+      - ../logging_utils:/app/logging_utils
+      # 挂载其他核心模块，使修改立即生效
+      - ../api_utils:/app/api_utils
+      - ../models:/app/models
+      - ../stream:/app/stream
+      # 挂载启动器文件，使修改立即生效
+      - ../launch_camoufox.py:/app/launch_camoufox.py
+      - ../server.py:/app/server.py
     environment:
-      # 这些环境变量会覆盖 .env 文件中的设置
-      # 如果您想使用 .env 文件，可以注释掉这些行
+      # 这些环境变量会从 .env 文件中读取
       - PYTHONUNBUFFERED=1
-      - UNIFIED_PROXY_CONFIG=http://127.0.0.1:20171  # 添加这一行
-      # - PORT=${PORT:-8000}
-      # - DEFAULT_FASTAPI_PORT=${DEFAULT_FASTAPI_PORT:-2048}
-      # - DEFAULT_CAMOUFOX_PORT=${DEFAULT_CAMOUFOX_PORT:-9222}
-      # - STREAM_PORT=${STREAM_PORT:-3120}
-      # - SERVER_LOG_LEVEL=${SERVER_LOG_LEVEL:-INFO}
-      # - DEBUG_LOGS_ENABLED=${DEBUG_LOGS_ENABLED:-false}
-      # - AUTO_CONFIRM_LOGIN=${AUTO_CONFIRM_LOGIN:-true}
+      # - UNIFIED_PROXY_CONFIG=http://127.0.0.1:20171  # 不需要代理时注释掉
+      - PORT=${PORT:-8000}
+      - DEFAULT_FASTAPI_PORT=${DEFAULT_FASTAPI_PORT:-12048}
+      - DEFAULT_CAMOUFOX_PORT=${DEFAULT_CAMOUFOX_PORT:-9222}
+      - STREAM_PORT=${STREAM_PORT:-13120}
+      - SERVER_LOG_LEVEL=${SERVER_LOG_LEVEL:-INFO}
+      - DEBUG_LOGS_ENABLED=${DEBUG_LOGS_ENABLED:-false}
+      - AUTO_CONFIRM_LOGIN=${AUTO_CONFIRM_LOGIN:-true}
       # 代理配置 (可选)
       # - HTTP_PROXY=${HTTP_PROXY}
       # - HTTPS_PROXY=${HTTPS_PROXY}
       # - UNIFIED_PROXY_CONFIG=${UNIFIED_PROXY_CONFIG}
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:${DEFAULT_FASTAPI_PORT:-2048}/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:${DEFAULT_FASTAPI_PORT:-12048}/health"]
       interval: 30s
       timeout: 10s
       retries: 3

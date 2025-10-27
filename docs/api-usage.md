@@ -147,8 +147,93 @@ response = requests.post(
 - 请求体与 OpenAI API 兼容，需要 `messages` 数组。
 - `model` 字段现在用于指定目标模型，代理会尝试在 AI Studio 页面切换到该模型。如果为空或为代理的默认模型名，则使用 AI Studio 当前激活的模型。
 - `stream` 字段控制流式 (`true`) 或非流式 (`false`) 输出。
-- 现在支持 `temperature`, `max_output_tokens`, `top_p`, `stop` 等参数，代理会尝试在 AI Studio 页面上应用它们。
+- 现在支持 `temperature`, `max_output_tokens`, `top_p`, `stop`, `reasoning_effort` 等参数，代理会尝试在 AI Studio 页面上应用它们。
 - **需要认证**: 如果配置了 API 密钥，此端点需要有效的认证头。
+
+#### 思考模式控制 (reasoning_effort 参数)
+
+`reasoning_effort` 参数用于控制 AI Studio 的思考模式和预算。支持以下三种使用场景：
+
+**场景1: 关闭思考模式**
+
+```json
+{
+  "reasoning_effort": 0     // 整数 0
+}
+```
+或
+```json
+{
+  "reasoning_effort": "0"   // 字符串 "0"
+}
+```
+
+行为:
+- 关闭主思考开关，完全禁用思考模式
+- 如果主开关不可用（某些模型版本），将预算设置为 0 作为降级方案，网页会自动设置成最低的budget
+
+**场景2: 开启思考并限制预算**
+
+使用预设值:
+```json
+{
+  "reasoning_effort": "low"      // 1000 tokens
+  // 或 "medium"   (8000 tokens)
+  // 或 "high"     (24000 tokens)
+}
+```
+
+使用具体数值:
+```json
+{
+  "reasoning_effort": 5000       // 整数，设置具体的 token 预算
+}
+```
+或
+```json
+{
+  "reasoning_effort": "3000"     // 字符串数值也支持
+}
+```
+
+行为:
+- 开启主思考开关
+- 开启手动预算限制
+- 设置具体的预算值
+
+**场景3: 开启思考但不限制预算**
+
+```json
+{
+  "reasoning_effort": "none"     // 字符串 "none"
+}
+```
+或
+```json
+{
+  "reasoning_effort": -1         // 整数 -1
+}
+```
+或
+```json
+{
+  "reasoning_effort": "-1"       // 字符串 "-1"
+}
+```
+
+行为:
+- 开启主思考开关
+- 关闭手动预算限制，让模型自由思考
+
+**默认行为**
+
+如果不指定 `reasoning_effort` 参数，将使用服务器默认配置（由环境变量 `ENABLE_THINKING_BUDGET` 和 `DEFAULT_THINKING_BUDGET` 控制）。
+
+**参数格式说明**
+
+- 大小写不敏感: `"low"`, `"Low"`, `"LOW"` 效果相同
+- 支持空格: `" medium "`, `" 3000 "` 会自动去除空格
+- 类型灵活: 数值可以是整数或字符串格式
 
 #### 示例 (curl, 非流式, 带参数)
 
@@ -156,7 +241,7 @@ response = requests.post(
 curl -X POST http://127.0.0.1:2048/v1/chat/completions \
 -H "Content-Type: application/json" \
 -d '{
-  "model": "gemini-1.5-pro-latest",
+  "model": "gemini-2.5-pro",
   "messages": [
     {"role": "system", "content": "Be concise."},
     {"role": "user", "content": "What is the capital of France?"}
@@ -165,7 +250,23 @@ curl -X POST http://127.0.0.1:2048/v1/chat/completions \
   "temperature": 0.7,
   "max_output_tokens": 150,
   "top_p": 0.9,
-  "stop": ["\n\nUser:"]
+  "stop": ["\n\nUser:"],
+  "reasoning_effort": "medium"
+}'
+```
+
+#### 示例 (curl, 使用思考模式, 不限制预算)
+
+```bash
+curl -X POST http://127.0.0.1:2048/v1/chat/completions \
+-H "Content-Type: application/json" \
+-d '{
+  "model": "gemini-flash-latest",
+  "messages": [
+    {"role": "user", "content": "解释量子纠缠的原理，并思考其在量子计算中的应用"}
+  ],
+  "stream": false,
+  "reasoning_effort": "none"
 }'
 ```
 
@@ -175,7 +276,7 @@ curl -X POST http://127.0.0.1:2048/v1/chat/completions \
 curl -X POST http://127.0.0.1:2048/v1/chat/completions \
 -H "Content-Type: application/json" \
 -d '{
-  "model": "gemini-pro",
+  "model": "gemini-2.5-pro",
   "messages": [
     {"role": "user", "content": "Write a short story about a cat."}
   ],
@@ -195,7 +296,7 @@ import json
 API_URL = "http://127.0.0.1:2048/v1/chat/completions"
 headers = {"Content-Type": "application/json"}
 data = {
-    "model": "gemini-1.5-flash-latest",
+    "model": "gemini-2.5-flash-latest",
     "messages": [
         {"role": "user", "content": "Translate 'hello' to Spanish."}
     ],
@@ -245,7 +346,8 @@ else:
 - 返回 AI Studio 页面上检测到的可用模型列表，以及一个代理本身的默认模型条目。
 - 现在会尝试从 AI Studio 动态获取模型列表。如果获取失败，会返回一个后备模型。
 - 支持 [`excluded_models.txt`](../excluded_models.txt) 文件，用于从列表中排除特定的模型 ID。
-- **🆕 脚本注入模型**: 如果启用了脚本注入功能，列表中还会包含通过油猴脚本注入的自定义模型，这些模型会标记为 `"injected": true`。
+- 注入模型功能已不再支持
+<!-- - **🆕 脚本注入模型**: 如果启用了脚本注入功能，列表中还会包含通过油猴脚本注入的自定义模型，这些模型会标记为 `"injected": true`。
 
 **脚本注入模型特点**:
 
@@ -271,7 +373,7 @@ else:
     }
   ]
 }
-```
+``` -->
 
 ### API 信息
 

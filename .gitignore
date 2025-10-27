@@ -216,6 +216,7 @@ venv.bak/
 
 # Error snapshots directory (Python specific)
 errors_py/
+screenshots/
 logs/
 
 # Authentication Profiles (Sensitive)

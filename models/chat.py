@@ -69,7 +69,7 @@ class ChatCompletionRequest(BaseModel):
     max_output_tokens: Optional[int] = None
     stop: Optional[Union[str, List[str]]] = None
     top_p: Optional[float] = None 
-    reasoning_effort: Optional[str] = None
+    reasoning_effort: Optional[Union[str, int]] = None
     tools: Optional[List[Dict[str, Any]]] = None
     tool_choice: Optional[Union[str, Dict[str, Any]]] = None
     seed: Optional[int] = None

@@ -3,8 +3,9 @@ import logging.handlers
 import os
 import sys
 from typing import Tuple
+from datetime import datetime
 
-from config import LOG_DIR, ACTIVE_AUTH_DIR, SAVED_AUTH_DIR, APP_LOG_FILE_PATH
+from config import LOG_DIR, ACTIVE_AUTH_DIR, SAVED_AUTH_DIR
 from models import StreamToLogger, WebSocketLogHandler, WebSocketConnectionManager
 
 
@@ -33,26 +34,23 @@ def setup_server_logging(
     os.makedirs(LOG_DIR, exist_ok=True)
     os.makedirs(ACTIVE_AUTH_DIR, exist_ok=True)
     os.makedirs(SAVED_AUTH_DIR, exist_ok=True)
-    
+
+    # 生成带时间戳的日志文件名
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    app_log_file_path = os.path.join(LOG_DIR, f'app_{timestamp}.log')
+
     # 设置文件日志格式器
     file_log_formatter = logging.Formatter('%(asctime)s - %(levelname)s - [%(name)s:%(funcName)s:%(lineno)d] - %(message)s')
-    
+
     # 清理现有的处理器
     if logger_instance.hasHandlers():
         logger_instance.handlers.clear()
     logger_instance.setLevel(log_level)
     logger_instance.propagate = False
-    
-    # 移除旧的日志文件
-    if os.path.exists(APP_LOG_FILE_PATH):
-        try:
-            os.remove(APP_LOG_FILE_PATH)
-        except OSError as e:
-            print(f"警告 (setup_server_logging): 尝试移除旧的 app.log 文件 '{APP_LOG_FILE_PATH}' 失败: {e}。将依赖 mode='w' 进行截断。", file=sys.__stderr__)
-    
-    # 添加文件处理器
+
+    # 添加文件处理器（使用带时间戳的文件名）
     file_handler = logging.handlers.RotatingFileHandler(
-        APP_LOG_FILE_PATH, maxBytes=5*1024*1024, backupCount=5, encoding='utf-8', mode='w'
+        app_log_file_path, maxBytes=5*1024*1024, backupCount=5, encoding='utf-8', mode='w'
     )
     file_handler.setFormatter(file_log_formatter)
     logger_instance.addHandler(file_handler)
@@ -101,7 +99,7 @@ def setup_server_logging(
     # 记录初始化信息
     logger_instance.info("=" * 5 + " AIStudioProxyServer 日志系统已在 lifespan 中初始化 " + "=" * 5)
     logger_instance.info(f"日志级别设置为: {logging.getLevelName(log_level)}")
-    logger_instance.info(f"日志文件路径: {APP_LOG_FILE_PATH}")
+    logger_instance.info(f"日志文件路径: {app_log_file_path}")
     logger_instance.info(f"控制台日志处理器已添加。")
     logger_instance.info(f"Print 重定向 (由 SERVER_REDIRECT_PRINT 环境变量控制): {'启用' if redirect_print else '禁用'}")
     

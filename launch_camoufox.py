@@ -18,6 +18,7 @@ import logging.handlers
 import socket
 import platform
 import shutil
+from datetime import datetime
 
 # --- 新的导入 ---
 from dotenv import load_dotenv
@@ -98,19 +99,21 @@ def _enqueue_output(stream, stream_name, output_queue, process_pid_for_log="<未
 # --- 设置本启动器脚本的日志系统 (setup_launcher_logging) (from dev - clears log on start) ---
 def setup_launcher_logging(log_level=logging.INFO):
     os.makedirs(LOG_DIR, exist_ok=True)
+
+    # 生成带时间戳的日志文件名
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    launcher_log_file_path = os.path.join(LOG_DIR, f'launch_app_{timestamp}.log')
+
     file_log_formatter = logging.Formatter('%(asctime)s - %(levelname)s - [%(name)s:%(funcName)s:%(lineno)d] - %(message)s')
     console_log_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
     if logger.hasHandlers():
         logger.handlers.clear()
     logger.setLevel(log_level)
     logger.propagate = False
-    if os.path.exists(LAUNCHER_LOG_FILE_PATH):
-        try:
-            os.remove(LAUNCHER_LOG_FILE_PATH)
-        except OSError:
-            pass
+
+    # 添加文件处理器（使用带时间戳的文件名）
     file_handler = logging.handlers.RotatingFileHandler(
-        LAUNCHER_LOG_FILE_PATH, maxBytes=2*1024*1024, backupCount=3, encoding='utf-8', mode='w'
+        launcher_log_file_path, maxBytes=2*1024*1024, backupCount=3, encoding='utf-8', mode='w'
     )
     file_handler.setFormatter(file_log_formatter)
     logger.addHandler(file_handler)
@@ -119,7 +122,7 @@ def setup_launcher_logging(log_level=logging.INFO):
     logger.addHandler(stream_handler)
     logger.info("=" * 30 + " Camoufox启动器日志系统已初始化 " + "=" * 30)
     logger.info(f"日志级别设置为: {logging.getLevelName(logger.getEffectiveLevel())}")
-    logger.info(f"日志文件路径: {LAUNCHER_LOG_FILE_PATH}")
+    logger.info(f"日志文件路径: {launcher_log_file_path}")
 
 # --- 确保认证文件目录存在 (ensure_auth_dirs_exist) ---
 def ensure_auth_dirs_exist():
