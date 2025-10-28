@@ -43,8 +43,14 @@ MAT_CHIP_REMOVE_BUTTON_SELECTOR = 'mat-chip-set mat-chip-row button[aria-label*=
 TOP_P_INPUT_SELECTOR = 'ms-slider input[type="number"][max="1"]'
 TEMPERATURE_INPUT_SELECTOR = 'ms-slider input[type="number"][max="2"]'
 USE_URL_CONTEXT_SELECTOR = 'button[aria-label="Browse the url context"]'
+
+# --- 思考模式相关选择器 ---
+# 主思考开关：控制是否启用思考模式（总开关）
+ENABLE_THINKING_MODE_TOGGLE_SELECTOR = '[data-test-toggle="enable-thinking"] button'
+# 手动预算开关：控制是否手动限制思考预算
 SET_THINKING_BUDGET_TOGGLE_SELECTOR = '[data-test-toggle="manual-budget"] button'
-# Thinking budget slider input
+# 思考预算输入框
 THINKING_BUDGET_INPUT_SELECTOR = '[data-test-slider] input[type="number"]'
+
 # --- Google Search Grounding ---
 GROUNDING_WITH_GOOGLE_SEARCH_TOGGLE_SELECTOR = 'div[data-test-id="searchAsAToolTooltip"] mat-slide-toggle button'

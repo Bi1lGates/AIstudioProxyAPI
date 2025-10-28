@@ -14,7 +14,7 @@ from config import (
     CLEAR_CHAT_BUTTON_SELECTOR, CLEAR_CHAT_CONFIRM_BUTTON_SELECTOR, OVERLAY_SELECTOR,
     PROMPT_TEXTAREA_SELECTOR, RESPONSE_CONTAINER_SELECTOR, RESPONSE_TEXT_SELECTOR,
     EDIT_MESSAGE_BUTTON_SELECTOR,USE_URL_CONTEXT_SELECTOR,UPLOAD_BUTTON_SELECTOR,
-    SET_THINKING_BUDGET_TOGGLE_SELECTOR, THINKING_BUDGET_INPUT_SELECTOR,
+    ENABLE_THINKING_MODE_TOGGLE_SELECTOR, SET_THINKING_BUDGET_TOGGLE_SELECTOR, THINKING_BUDGET_INPUT_SELECTOR,
     GROUNDING_WITH_GOOGLE_SEARCH_TOGGLE_SELECTOR
 )
 from config import (
@@ -25,6 +25,7 @@ from config import (
 from models import ClientDisconnectedError
 from .operations import save_error_snapshot, _wait_for_response_completion, _get_final_response_content
 from .initialization import enable_temporary_chat_mode
+from .thinking_normalizer import normalize_reasoning_effort, format_directive_log
 
 class PageController:
     """封装了与AI Studio页面交互的所有操作。"""
@@ -80,67 +81,69 @@ class PageController:
         await self._adjust_google_search(request_params, check_client_disconnected)
 
     async def _handle_thinking_budget(self, request_params: Dict[str, Any], check_client_disconnected: Callable):
-        """处理思考预算的调整逻辑。"""
+        """处理思考模式和预算的调整逻辑。
+
+        使用归一化模块将 reasoning_effort 转换为标准指令，然后根据指令控制：
+        1. 主思考开关（总开关）
+        2. 手动预算开关
+        3. 预算值输入框
+        """
         reasoning_effort = request_params.get('reasoning_effort')
 
-        # 检查用户是否明确禁用了思考预算
-        should_disable_budget = isinstance(reasoning_effort, str) and reasoning_effort.lower() == 'none'
+        # 使用归一化模块标准化参数
+        directive = normalize_reasoning_effort(reasoning_effort)
+        self.logger.info(f"[{self.req_id}] 思考模式指令: {format_directive_log(directive)}")
 
-        if should_disable_budget:
-            self.logger.info(f"[{self.req_id}] 用户通过 reasoning_effort='none' 明确禁用思考预算。")
-            await self._control_thinking_budget_toggle(should_be_checked=False, check_client_disconnected=check_client_disconnected)
-        elif reasoning_effort is not None:
-            # 用户指定了非 'none' 的值，则开启并设置
-            self.logger.info(f"[{self.req_id}] 用户指定了 reasoning_effort: {reasoning_effort}，将启用并设置思考预算。")
-            await self._control_thinking_budget_toggle(should_be_checked=True, check_client_disconnected=check_client_disconnected)
-            await self._adjust_thinking_budget(reasoning_effort, check_client_disconnected)
-        else:
-            # 用户未指定，根据默认配置
-            self.logger.info(f"[{self.req_id}] 用户未指定 reasoning_effort，根据默认配置 ENABLE_THINKING_BUDGET: {ENABLE_THINKING_BUDGET}。")
-            await self._control_thinking_budget_toggle(should_be_checked=ENABLE_THINKING_BUDGET, check_client_disconnected=check_client_disconnected)
-            if ENABLE_THINKING_BUDGET:
-                # 如果默认开启，则使用默认值
-                await self._adjust_thinking_budget(None, check_client_disconnected)
+        # 场景1: 关闭思考模式
+        if not directive.thinking_enabled:
+            self.logger.info(f"[{self.req_id}] 尝试关闭主思考开关...")
+            success = await self._control_thinking_mode_toggle(
+                should_be_enabled=False,
+                check_client_disconnected=check_client_disconnected
+            )
 
-    def _parse_thinking_budget(self, reasoning_effort: Optional[Any]) -> Optional[int]:
-        """从 reasoning_effort 解析出 token_budget。"""
-        token_budget = None
-        if reasoning_effort is None:
-            token_budget = DEFAULT_THINKING_BUDGET
-            self.logger.info(f"[{self.req_id}] 'reasoning_effort' 为空，使用默认思考预算: {token_budget}")
-        elif isinstance(reasoning_effort, int):
-            token_budget = reasoning_effort
-        elif isinstance(reasoning_effort, str):
-            if reasoning_effort.lower() == 'none':
-                token_budget = DEFAULT_THINKING_BUDGET
-                self.logger.info(f"[{self.req_id}] 'reasoning_effort' 为 'none' 字符串，使用默认思考预算: {token_budget}")
-            else:
-                effort_map = {
-                    "low": 1000,
-                    "medium": 8000,
-                    "high": 24000
-                }
-                token_budget = effort_map.get(reasoning_effort.lower())
-                if token_budget is None:
-                    try:
-                        token_budget = int(reasoning_effort)
-                    except (ValueError, TypeError):
-                        pass # token_budget remains None
-        
-        if token_budget is None:
-             self.logger.warning(f"[{self.req_id}] 无法从 '{reasoning_effort}' (类型: {type(reasoning_effort)}) 解析出有效的 token_budget。")
-
-        return token_budget
-
-    async def _adjust_thinking_budget(self, reasoning_effort: Optional[Any], check_client_disconnected: Callable):
-        """根据 reasoning_effort 调整思考预算。"""
-        self.logger.info(f"[{self.req_id}] 检查并调整思考预算，输入值: {reasoning_effort}")
-        
-        token_budget = self._parse_thinking_budget(reasoning_effort)
-
-        if token_budget is None:
-            self.logger.warning(f"[{self.req_id}] 无效的 reasoning_effort 值: '{reasoning_effort}'。跳过调整。")
+            if not success:
+                # 降级方案：主开关不可用，尝试将预算设为 0
+                self.logger.warning(f"[{self.req_id}] 主思考开关不可用，使用降级方案：设置预算为 0")
+                await self._control_thinking_budget_toggle(
+                    should_be_checked=True,
+                    check_client_disconnected=check_client_disconnected
+                )
+                await self._set_thinking_budget_value(0, check_client_disconnected)
             return
+
+        # 场景2和3: 开启思考模式
+        self.logger.info(f"[{self.req_id}] 开启主思考开关...")
+        await self._control_thinking_mode_toggle(
+            should_be_enabled=True,
+            check_client_disconnected=check_client_disconnected
+        )
+
+        # 场景2: 开启思考，不限制预算
+        if not directive.budget_enabled:
+            self.logger.info(f"[{self.req_id}] 关闭手动预算限制...")
+            await self._control_thinking_budget_toggle(
+                should_be_checked=False,
+                check_client_disconnected=check_client_disconnected
+            )
+
+        # 场景3: 开启思考，限制预算
+        else:
+            self.logger.info(f"[{self.req_id}] 开启手动预算限制并设置预算值: {directive.budget_value} tokens")
+            await self._control_thinking_budget_toggle(
+                should_be_checked=True,
+                check_client_disconnected=check_client_disconnected
+            )
+            await self._set_thinking_budget_value(directive.budget_value, check_client_disconnected)
+
+    async def _set_thinking_budget_value(self, token_budget: int, check_client_disconnected: Callable):
+        """设置思考预算的具体数值。
+
+        参数:
+            token_budget: 预算token数量（由归一化模块计算得出）
+            check_client_disconnected: 客户端断连检查回调
+        """
+        self.logger.info(f"[{self.req_id}] 设置思考预算值: {token_budget} tokens")
 
         budget_input_locator = self.page.locator(THINKING_BUDGET_INPUT_SELECTOR)
         
@@ -162,7 +165,6 @@ class PageController:
 
         except Exception as e:
             self.logger.error(f"[{self.req_id}] ❌ 调整思考预算时出错: {e}")
-            await save_error_snapshot(f"thinking_budget_error_{self.req_id}")
             if isinstance(e, ClientDisconnectedError):
                 raise
 
@@ -219,7 +221,6 @@ class PageController:
 
         except Exception as e:
             self.logger.error(f"[{self.req_id}] ❌ 操作 'Google Search toggle' 开关时发生错误: {e}")
-            await save_error_snapshot(f"google_search_toggle_error_{self.req_id}")
             if isinstance(e, ClientDisconnectedError):
                  raise
 
@@ -268,9 +269,71 @@ class PageController:
             if isinstance(e, ClientDisconnectedError):
                 raise
 
+    async def _control_thinking_mode_toggle(self, should_be_enabled: bool, check_client_disconnected: Callable) -> bool:
+        """
+        控制主思考开关（总开关），决定是否启用思考模式。
+
+        参数:
+            should_be_enabled: 期望的开关状态（True=开启, False=关闭）
+            check_client_disconnected: 客户端断开检测函数
+
+        返回:
+            bool: 是否成功设置到期望状态（如果开关不存在或被禁用，返回False）
+        """
+        toggle_selector = ENABLE_THINKING_MODE_TOGGLE_SELECTOR
+        self.logger.info(f"[{self.req_id}] 控制主思考开关，期望状态: {'开启' if should_be_enabled else '关闭'}...")
+
+        try:
+            toggle_locator = self.page.locator(toggle_selector)
+
+            # 等待元素可见（5秒超时）
+            await expect_async(toggle_locator).to_be_visible(timeout=5000)
+            await self._check_disconnect(check_client_disconnected, "主思考开关 - 元素可见后")
+
+            # 检查当前状态
+            is_checked_str = await toggle_locator.get_attribute("aria-checked")
+            current_state_is_enabled = is_checked_str == "true"
+            self.logger.info(f"[{self.req_id}] 主思考开关当前状态: {is_checked_str} (是否开启: {current_state_is_enabled})")
+
+            # 如果当前状态与期望状态不同，点击切换
+            if current_state_is_enabled != should_be_enabled:
+                action = "开启" if should_be_enabled else "关闭"
+                self.logger.info(f"[{self.req_id}] 主思考开关需要切换，正在点击以{action}思考模式...")
+
+                await toggle_locator.click(timeout=CLICK_TIMEOUT_MS)
+                await self._check_disconnect(check_client_disconnected, f"主思考开关 - 点击{action}后")
+
+                # 等待状态更新
+                await asyncio.sleep(0.5)
+
+                # 验证新状态
+                new_state_str = await toggle_locator.get_attribute("aria-checked")
+                new_state_is_enabled = new_state_str == "true"
+
+                if new_state_is_enabled == should_be_enabled:
+                    self.logger.info(f"[{self.req_id}] ✅ 主思考开关已成功{action}。新状态: {new_state_str}")
+                    return True
+                else:
+                    self.logger.warning(f"[{self.req_id}] ⚠️ 主思考开关{action}后验证失败。期望: {should_be_enabled}, 实际: {new_state_str}")
+                    return False
+            else:
+                self.logger.info(f"[{self.req_id}] 主思考开关已处于期望状态，无需操作。")
+                return True
+
+        except TimeoutError:
+            self.logger.warning(f"[{self.req_id}] ⚠️ 主思考开关元素未找到或不可见（当前模型可能不支持思考模式）")
+            return False
+        except Exception as e:
+            self.logger.error(f"[{self.req_id}] ❌ 操作主思考开关时发生错误: {e}")
+            await save_error_snapshot(f"thinking_mode_toggle_error_{self.req_id}")
+            if isinstance(e, ClientDisconnectedError):
+                raise
+            return False
+
     async def _control_thinking_budget_toggle(self, should_be_checked: bool, check_client_disconnected: Callable):
         """
         根据 should_be_checked 的值，控制 "Thinking Budget" 滑块开关的状态。
+        （手动预算开关，控制是否限制思考预算）
         """
         toggle_selector = SET_THINKING_BUDGET_TOGGLE_SELECTOR
         self.logger.info(f"[{self.req_id}] 控制 'Thinking Budget' 开关，期望状态: {'选中' if should_be_checked else '未选中'}...")
@@ -303,8 +366,6 @@ class PageController:
 
         except Exception as e:
             self.logger.error(f"[{self.req_id}] ❌ 操作 'Thinking Budget toggle' 开关时发生错误: {e}")
-            # 添加错误截图
-            await save_error_snapshot(f"thinking_budget_toggle_error_{self.req_id}")
             if isinstance(e, ClientDisconnectedError):
                 raise
     async def _adjust_temperature(self, temperature: float, page_params_cache: dict, params_cache_lock: asyncio.Lock, check_client_disconnected: Callable):
@@ -854,8 +915,6 @@ class PageController:
             return True
         except Exception as e:
             self.logger.error(f"[{self.req_id}] 通过上传菜单设置文件失败: {e}")
-            # 添加错误截图
-            await save_error_snapshot(f"upload_menu_error_{self.req_id}")
             return False
 
     async def submit_prompt(self, prompt: str,image_list: List, check_client_disconnected: Callable):
@@ -907,27 +966,28 @@ class PageController:
             await self._check_disconnect(check_client_disconnected, "After Submit Button Enabled")
             await asyncio.sleep(0.3)
 
-            # 优先回车提交，其次按钮提交，最后组合键提交
-            submitted_successfully = await self._try_enter_submit(prompt_textarea_locator, check_client_disconnected)
-            if not submitted_successfully:
-                self.logger.info(f"[{self.req_id}] 回车提交失败，尝试点击提交按钮...")
-                button_clicked = False
-                try:
-                    # 提交前再处理一次潜在对话框，避免按钮点击被拦截
-                    await self._handle_post_upload_dialog()
-                    await submit_button_locator.click(timeout=5000)
-                    self.logger.info(f"[{self.req_id}] ✅ 提交按钮点击完成。")
-                    button_clicked = True
-                except Exception as click_err:
-                    self.logger.error(f"[{self.req_id}] ❌ 提交按钮点击失败: {click_err}")
-                    await save_error_snapshot(f"submit_button_click_fail_{self.req_id}")
+            # 优先点击按钮提交，其次回车提交，最后组合键提交
+            button_clicked = False
+            try:
+                self.logger.info(f"[{self.req_id}] 尝试点击提交按钮...")
+                # 提交前再处理一次潜在对话框，避免按钮点击被拦截
+                await self._handle_post_upload_dialog()
+                await submit_button_locator.click(timeout=5000)
+                self.logger.info(f"[{self.req_id}] ✅ 提交按钮点击完成。")
+                button_clicked = True
+            except Exception as click_err:
+                self.logger.error(f"[{self.req_id}] ❌ 提交按钮点击失败: {click_err}")
+                await save_error_snapshot(f"submit_button_click_fail_{self.req_id}")
 
-                if not button_clicked:
-                    self.logger.info(f"[{self.req_id}] 按钮提交失败，尝试组合键提交...")
+            if not button_clicked:
+                self.logger.info(f"[{self.req_id}] 按钮提交失败，尝试回车键提交...")
+                submitted_successfully = await self._try_enter_submit(prompt_textarea_locator, check_client_disconnected)
+                if not submitted_successfully:
+                    self.logger.info(f"[{self.req_id}] 回车提交失败，尝试组合键提交...")
                     combo_ok = await self._try_combo_submit(prompt_textarea_locator, check_client_disconnected)
                     if not combo_ok:
                         self.logger.error(f"[{self.req_id}] ❌ 组合键提交也失败。")
-                        raise Exception("Submit failed: Enter, Button, and Combo key all failed")
+                        raise Exception("Submit failed: Button, Enter, and Combo key all failed")
 
             await self._check_disconnect(check_client_disconnected, "After Submit")
 
@@ -1135,8 +1195,6 @@ class PageController:
                 return False
         except Exception as shortcut_err:
             self.logger.warning(f"[{self.req_id}] 回车键提交失败: {shortcut_err}")
-            # 添加错误截图
-            await save_error_snapshot(f"enter_submit_fail_{self.req_id}")
             return False
 
     async def _try_combo_submit(self, prompt_textarea_locator, check_client_disconnected: Callable) -> bool:
@@ -1229,8 +1287,6 @@ class PageController:
                 return False
         except Exception as combo_err:
             self.logger.warning(f"[{self.req_id}] 组合键提交失败: {combo_err}")
-            # 添加错误截图
-            await save_error_snapshot(f"combo_submit_fail_{self.req_id}")
             return False
 
     async def get_response(self, check_client_disconnected: Callable) -> str:
